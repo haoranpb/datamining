@@ -6,6 +6,9 @@ import math
 
 
 def calcu_local_density(points_x, points_y ,i ,dc):
+    """
+        计算第 i 个点的 local density
+    """
     sum = 0
     for t in range(0, len(points_x)):
         if t == i: # 为了防止正向无限趋勤于0
@@ -18,10 +21,17 @@ def calcu_local_density(points_x, points_y ,i ,dc):
 
 
 def calcu_distance(point1, point2):
+    """
+        计算两个点之间的距离，勾股定理
+    """
     return math.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
 
 
 def calcu_dc(x, y, d):
+    """
+        计算dc： 计算每两个点之间的距离，之后从小到大排序，选取第 2% 的点作为 dc 的值。
+        注意：论文里写的是 1-2%。但是经过尝试，2%还算比较合适。
+    """
     d_i_j = []
     for i in range(len(x)):
         temp_list = [-1] * (i + 1)
@@ -31,15 +41,20 @@ def calcu_dc(x, y, d):
             temp_list.append(temp)
         d.append(temp_list)
     d_i_j.sort()
-    return(d_i_j[round(0.015*len(x)/2*(len(x) - 1))])
+    return(d_i_j[round(T*len(x)/2*(len(x) - 1))])
 
 
-def calcu_min_distance_point(d):
+def calcu_min_distance_point(d, p_densities):
+    """
+        对每个点计算，到该点的最小距离和那个点的序号
+    """
     ans = []
     for i in range(len(d)):
         min_point = -1
         min_distance = 9999
         for j in range(len(d)):
+            if p_densities[j] <= p_densities[i]:
+                continue
             distance = 10000
             if i == j:
                 continue
@@ -55,11 +70,34 @@ def calcu_min_distance_point(d):
     return ans
 
 
+def calcu_clusters(clusters, next_point, i):
+    if clusters[i] == -1:
+        clusters[i] = -2
+        clusters[i] = calcu_clusters(clusters, next_point, next_point[i])
+        return clusters[i]
+    elif clusters[i] >= 0:
+        # print(i, clusters[i])
+        return clusters[i]
+    elif clusters[i] == -2:
+        return -2
+
+### Const Varibles
+COLORS = ['#7f7f7f',
+          '#ff7f0e',
+          '#2ca02c',
+          '#d62728',
+          '#9467bd',
+          '#8c564b',
+          '#e377c2',]
+T = 0.02
+CLASSES = 6
+
 if __name__ == "__main__":
 
     ### Get points coordinates from file
     x = []
     y = []
+    COLORS = COLORS[0:CLASSES]
     distance = []
     with open('./Data/Aggregation.txt', 'r') as file:
         for line in file:
@@ -68,7 +106,6 @@ if __name__ == "__main__":
             y.append(float(point[1]))
 
     dc = calcu_dc(x, y, distance)
-    min_distance_point = calcu_min_distance_point(distance)
 
 
     ### Calculate each point's density
@@ -79,6 +116,8 @@ if __name__ == "__main__":
         if temp > max_density:
             max_density = temp
         points_densities.append(temp)
+
+    min_distance_point = calcu_min_distance_point(distance, points_densities) # 距离每个点最近的点的序号
 
 
     ### Calculate each point's sigema
@@ -106,41 +145,73 @@ if __name__ == "__main__":
             sigemas.append(min_distance)
 
 
-    # Plot graph for center point
+    # Plot graph for gamma
     plt.figure()
+    plt.title('The value of γi = pi*di in decreasing order for the data')
     temp_x = []
-    temp_ans = []
-    test = []
+    gamma = []
+    gamma_with_num = []
+    density_with_num = []
     for i in range(len(x)):
         temp_x.append(i)
-        temp_ans.append(points_densities[i]*sigemas[i])
-        test.append([points_densities[i]*sigemas[i], i])
-    temp_ans.sort(reverse=True)
-    test.sort(reverse=True)
+        gamma.append(points_densities[i]*sigemas[i])
+        gamma_with_num.append([points_densities[i]*sigemas[i], i])
+        density_with_num.append([points_densities[i], i])
+    gamma.sort(reverse=True)
+    gamma_with_num.sort(reverse=True)
+    density_with_num.sort(reverse=True)
 
-    test_x = []
-    test_y = []
-    t_x = []
-    t_y = []
-    for i in range(12):
-        num = test[i][1] # 序号
-        test_x.append(x[num])
-        test_y.append(y[num])
-        t_x.append(points_densities[num])
-        t_y.append(sigemas[num])
-
-    plt.scatter(temp_x, temp_ans)
+    plt.scatter(temp_x, gamma, s=20)
 
 
     # Plot Decision graph
     plt.figure()
-    plt.scatter(points_densities, sigemas)
-    plt.scatter(t_x, t_y)
+    plt.title('Decision Graph')
+    center_points_x = []
+    center_points_y = []
+    center_points_densities = []
+    center_points_sigemas = []
+    clusters = [-1] * len(x)
+
+    for i in range(CLASSES):
+        num = gamma_with_num[i][1] # 第 i cluster的中心点的序号
+        clusters[num] = i
+        center_points_x.append(x[num])
+        center_points_y.append(y[num])
+        center_points_densities.append(points_densities[num])
+        center_points_sigemas.append(sigemas[num])
+    # for i in range(8):
+    #     if i == 1: # 根据图像结果，手动筛选掉一个重复的中心点
+    #         continue
+    #     num = gamma_with_num[i][1] # 第 i cluster的中心点的序号
+    #     if i > 1:
+    #         clusters[num] = i - 1
+    #     else:
+    #         clusters[num] = i
+    #     center_points_x.append(x[num])
+    #     center_points_y.append(y[num])
+    #     center_points_densities.append(points_densities[num])
+    #     center_points_sigemas.append(sigemas[num])
+
+    plt.scatter(points_densities, sigemas, s=25)
+    plt.scatter(center_points_densities, center_points_sigemas, s=80, c=COLORS)
 
 
     # Plot all of the points
     plt.figure()
-    plt.scatter(x, y)
-    plt.scatter(test_x, test_y)
+    plt.title('Points Distributions')
+    clusters_x = [[] for i in range(CLASSES)]
+    clusters_y = [[] for i in range(CLASSES)]
+    for i in range(len(x)):
+        num = density_with_num[i][1] # 按 density 从大到下取出序号
+        calcu_clusters(clusters, min_distance_point, num)
+
+    for i in range(len(x)):
+        if clusters[i] >= 0:
+            clusters_x[clusters[i]].append(x[i])
+            clusters_y[clusters[i]].append(y[i])
+
+    for i in range(CLASSES):
+        plt.scatter(clusters_x[i], clusters_y[i], s=25, c=COLORS[i])
 
     plt.show()
