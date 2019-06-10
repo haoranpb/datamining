@@ -1,7 +1,8 @@
 import csv
 import numpy as np
 from keras.models import Sequential
-from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten
+from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, Activation
+from keras.optimizers import Adam
 
 def check_validation(value_dict):
     for key, value in value_dict.items():
@@ -49,19 +50,20 @@ x_test = X[int(0.8*LEN):]
 y_test = Y[int(0.8*LEN):]
 # print(X.shape)
 
-
+adam = Adam(lr=1e-6, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-10, amsgrad=False)
 model = Sequential()
 
 model.add(Conv2D(64, kernel_size=3, activation='relu', input_shape=(5, 6, 1)))
+model.add(Activation('relu'))
 model.add(Conv2D(32, kernel_size=3, activation='relu'))
 model.add(Flatten())
 model.add(Dense(32, activation='relu'))
 model.add(Dense(16, activation='relu'))
 model.add(Dense(2))
 
-model.compile(optimizer='adam', loss='mean_squared_error')
+model.compile(optimizer=adam, loss='mean_squared_error')
 
-model.fit(x_train, y_train, epochs=30, batch_size=32)
+model.fit(x_train, y_train, epochs=500, batch_size=32, shuffle=True)
 
 
 print(model.predict(x_test[:5]))
