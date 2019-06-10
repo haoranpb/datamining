@@ -1,5 +1,4 @@
 import csv
-import utm
 import numpy as np
 # from keras.models import Sequential
 # from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten
@@ -18,27 +17,26 @@ with open('../data/gongcan.csv', 'r') as file:
     for row in reader:
         coordinate = [row['Latitude'], row['Longitude']]
         signal_tower_dict[row['RNCID'] + '|' + row['CellID']] = coordinate
-# print(json.dumps(signal_tower_dict, indent=2))
 
 X = []
 Y = []
-max_1 = 0
-max_2 = 0
-min_1 = 999
-min_2 = 999
+max_longitude = 0
+max_latitude = 0
+min_latitude = 999
+min_longitude = 999
 with open('../data/train_2g.csv', 'r') as file:
     reader = csv.DictReader(file)
     for row in reader:
         if(check_validation(row)): # 如果有无效数据，直接丢弃
             Y.append([row['Latitude'], row['Longitude']])
-            max_1 = max(max_1, float(row['Latitude']))
-            max_2 = max(max_2, float(row['Longitude']))
-            min_1 = min(min_1, float(row['Latitude']))
-            min_2 = min(min_2, float(row['Longitude']))
+            max_latitude = max(max_latitude, float(row['Latitude']))
+            max_longitude = max(max_longitude, float(row['Longitude']))
+            min_latitude = min(min_latitude, float(row['Latitude']))
+            min_longitude = min(min_longitude, float(row['Longitude']))
 
-print(min_1, min_2, max_1, max_2)
-print(utm.from_latlon(min_1, min_2))
-print(utm.from_latlon(max_1, max_2))
+print(max_latitude, max_longitude)
+print(min_latitude, min_longitude)
+# print(utm.from_latlon(min_1, min_2))
 
             # print(utm.from_latlon(float(row['Latitude']), float(row['Longitude'])))
             # break

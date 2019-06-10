@@ -1,7 +1,8 @@
 import csv
+import utm
 import numpy as np
 from keras.models import Sequential
-from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, Activation
+from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten
 from keras.optimizers import Adam
 
 def check_validation(value_dict):
@@ -27,7 +28,7 @@ with open('../data/train_2g.csv', 'r') as file:
     for row in reader:
         if(check_validation(row)): # 如果有无效数据，直接丢弃
             Y.append([row['Latitude'], row['Longitude']])
-            mr_sample = np.zeros((6,5))
+            mr_sample = np.zeros((6, 5))
 
             for i in range(6):
                 coordinate = signal_tower_dict[row['RNCID_' + str(i+1)] + '|' + row['CellID_' + str(i+1)]]
@@ -40,22 +41,17 @@ with open('../data/train_2g.csv', 'r') as file:
             X.append(np.array([mr_sample]).T)
 
 LEN = len(X)
-# print(LEN)
+
 X = np.array(X).astype('float32')
 Y = np.array(Y).astype('float32')
-# print(Y.shape)
-x_train = X[0: int(0.8*LEN)]
-y_train = Y[0: int(0.8*LEN)]
-x_test = X[int(0.8*LEN):]
-y_test = Y[int(0.8*LEN):]
-# print(X.shape)
+
 
 adam = Adam(lr=1e-6, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-10, amsgrad=False)
 model = Sequential()
 
-model.add(Conv2D(64, kernel_size=3, activation='relu', input_shape=(5, 6, 1)))
-model.add(Activation('relu'))
-model.add(Conv2D(32, kernel_size=3, activation='relu'))
+model.add(Conv2D(32, kernel_size=3, activation='relu', input_shape=(5, 6, 1)))
+model.add(Conv2D(64, kernel_size=3, activation='relu'))
+# model.add(MaxPooling2D(pool_size=(2, 2)))
 model.add(Flatten())
 model.add(Dense(32, activation='relu'))
 model.add(Dense(16, activation='relu'))
@@ -63,8 +59,4 @@ model.add(Dense(2))
 
 model.compile(optimizer=adam, loss='mean_squared_error')
 
-model.fit(x_train, y_train, epochs=500, batch_size=32, shuffle=True)
-
-
-print(model.predict(x_test[:5]))
-print(y_test[:5])
+model.fit(X, Y, epochs=100, batch_size=32, shuffle=True)
