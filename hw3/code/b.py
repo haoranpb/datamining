@@ -1,7 +1,7 @@
 import csv
 import numpy as np
 # from keras.models import Sequential
-# from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten
+# from keras.layers import Dense, Conv2D, Flatten
 
 def check_validation(value_dict):
     for key, value in value_dict.items():
@@ -34,8 +34,41 @@ with open('../data/train_2g.csv', 'r') as file:
             min_latitude = min(min_latitude, float(row['Latitude']))
             min_longitude = min(min_longitude, float(row['Longitude']))
 
-print(max_latitude, max_longitude)
-print(min_latitude, min_longitude)
+print('MAX:', max_latitude, max_longitude)
+print('MIN:', min_latitude, min_longitude)
+print('-latitude', (max_latitude - min_latitude)*1000) # 12 -> 3
+print('-longitude', (max_longitude - min_longitude)*1000) # 16 -> 4
+
+la_size = 6
+lo_size = 8
+
+la = (max_latitude - min_latitude)/la_size
+lo = (max_longitude - min_longitude)/lo_size
+tmp_sum = np.zeros((la_size, lo_size))
+
+def coordinate_to_label(latitude, longitude):
+    lo_label = int((longitude - min_longitude - 1e-10)/lo)
+    la_label = int((latitude - min_latitude - 1e-10)/la)
+    # print(la_label, lo_label)
+    # if lo_label == 3
+    tmp = np.zeros((la_size, lo_size))
+    tmp[la_label][lo_label] = 1
+    tmp_sum[la_label][lo_label] += 1
+    return tmp
+
+
+
+for i in range(len(Y)):
+    new_y = coordinate_to_label(float(Y[i][0]), float(Y[i][1]))
+
+
+print(tmp_sum)
+print(np.sum(tmp_sum))
+
+def label_to_coordinate(label):
+    pass
+
+
 # print(utm.from_latlon(min_1, min_2))
 
             # print(utm.from_latlon(float(row['Latitude']), float(row['Longitude'])))
