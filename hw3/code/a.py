@@ -113,9 +113,7 @@ model.add(Dense(32, activation='relu'))
 model.add(Dense(2))
 
 model.compile(optimizer=adam, loss='mean_squared_error')
-
 model.fit(X_Train, Y_Train, epochs=1500, batch_size=64)
-
 result = model.predict(X_Test)
 
 result = scalerY.inverse_transform(result)
