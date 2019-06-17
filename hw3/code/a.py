@@ -1,10 +1,28 @@
 import csv
 import random
 import numpy as np
+from sklearn import preprocessing
+import matplotlib.pyplot as plt
 from keras.models import Sequential
 from keras.layers import Dense, Conv2D, Flatten
 from keras.optimizers import Adam
 import utm
+
+def shuffle_train_test(X, Y, LEN):
+    random.seed(1)
+    random_list = random.sample(range(LEN), k=int(0.1*LEN))
+    X_Train = []
+    Y_Train = []
+    X_Test = []
+    Y_Test = []
+    for i in range(LEN):
+        if i in random_list:
+            X_Test.append(X[i])
+            Y_Test.append(Y[i])
+        else:
+            X_Train.append(X[i])
+            Y_Train.append(Y[i])
+    return np.array(X_Train), np.array(Y_Train), np.array(X_Test), np.array(Y_Test)
 
 # lat, lon, 51 'R'
 def check_validation(value_dict):
@@ -13,6 +31,8 @@ def check_validation(value_dict):
         'Latitude': value_dict['Latitude'],
         'Longitude': value_dict['Longitude']
     }
+    if float(value_dict['Accuracy']) > 30:
+        return False, validate_data
     for i in range(6):
         if value_dict['RNCID_' + str(i+1)] != '-999' and value_dict['CellID_' + str(i+1)] != '-999' and value_dict['Dbm_' + str(i+1)] != '-999' \
             and value_dict['AsuLevel_' + str(i+1)] != '-1' and value_dict['SignalLevel_' + str(i+1)] != '-1':
@@ -29,8 +49,8 @@ def check_validation(value_dict):
     else:
         for i in range(6):
             if i not in validate_list:
-                random.seed(1)
-                k = random.choice(validate_list)
+                np.random.seed(1)
+                k = np.random.choice(validate_list)
                 validate_data['RNCID_' + str(i+1)] = value_dict['RNCID_' + str(k+1)]
                 validate_data['CellID_' + str(i+1)] = value_dict['CellID_' + str(k+1)]
                 validate_data['Dbm_' + str(i+1)] = value_dict['Dbm_' + str(k+1)]
@@ -65,34 +85,41 @@ with open('../data/train_2g.csv', 'r') as file:
             mr_sample[i][2] = parsed_row['Dbm_' + str(i+1)]
             mr_sample[i][3] = parsed_row['AsuLevel_' + str(i+1)]
             mr_sample[i][4] = parsed_row['SignalLevel_' + str(i+1)]
-
-        X.append(np.array([mr_sample]).T)
+        X.append(np.array(mr_sample))
 
 LEN = len(X)
+X = np.array(X).astype('float64')
+Y = np.array(Y).astype('float64')
 
-X = np.array(X).astype('float32')
-Y = np.array(Y).astype('float32')
-X_Train = X[:int(0.9*LEN)]
-Y_Train = Y[:int(0.9*LEN)]
+scalerX = preprocessing.StandardScaler()
+X = X.reshape((LEN, 30))
+X = scalerX.fit_transform(X)
+X = X.reshape((LEN, 6, 5))
+X = X[:, :, :, np.newaxis]
 
-X_Test = X[:int(0.1*LEN):]
-Y_Test = Y[:int(0.1*LEN):]
+scalerY = preprocessing.StandardScaler()
+Y = scalerY.fit_transform(Y)
+# print(X.shape)
+X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, LEN)
 
-adam = Adam(lr=1e-6, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+
+adam = Adam(lr=7e-5, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-6, amsgrad=False)
 model = Sequential()
 
-model.add(Conv2D(32, kernel_size=3, activation='relu', input_shape=(5, 6, 1)))
-model.add(Conv2D(64, kernel_size=3, activation='relu'))
+model.add(Conv2D(64, kernel_size=3, activation='relu', input_shape=(6, 5, 1)))
+model.add(Conv2D(128, kernel_size=3, activation='relu'))
 model.add(Flatten())
 model.add(Dense(32, activation='relu'))
 model.add(Dense(2))
 
 model.compile(optimizer=adam, loss='mean_squared_error')
 
-model.fit(X_Train, Y_Train, epochs=300, batch_size=32, shuffle=True)
+model.fit(X_Train, Y_Train, epochs=1500, batch_size=64)
 
 result = model.predict(X_Test)
 
+result = scalerY.inverse_transform(result)
+Y_Test = scalerY.inverse_transform(Y_Test)
 
 def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
     vector1 = np.array([true_latitude, true_longitude])
@@ -106,3 +133,10 @@ for i in range(int(0.1*LEN)):
 
 print(np.median(error_list)) # 这就是中位误差？
 print(np.mean(error_list)) # 这就是中位误差？
+
+plt.figure()
+plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
+# plt.scatter(Y_Train[:,0], Y_Train[:,1], c='red', s=3)
+plt.scatter(result[:,0], result[:,1], c='red', s=3)
+
+plt.show()
