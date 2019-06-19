@@ -4,7 +4,7 @@ import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
 from keras.models import Sequential
-from keras.layers import Dense, LSTM
+from keras.layers import Dense, LSTM, TimeDistributed
 from keras.optimizers import Adam
 import utm
 
@@ -146,6 +146,7 @@ for i in range(LEN):
 
 LEN = len(tmp_X)
 X, Y = np.array(tmp_X), np.array(tmp_Y)
+X = np.delete(X, [1], axis=1)
 
 scalerX = preprocessing.StandardScaler()
 scalerY = preprocessing.StandardScaler()
@@ -153,18 +154,19 @@ scalerY = preprocessing.StandardScaler()
 X = scalerX.fit_transform(X)
 Y = scalerY.fit_transform(Y)
 
-X = X.reshape((round(LEN/slice_length), slice_length, features))
-Y = Y.reshape((round(LEN/slice_length), slice_length*2))
+X = X.reshape((round(LEN/slice_length), slice_length, features-1))
+Y = Y.reshape((round(LEN/slice_length), slice_length, 2))
 
 X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
 
-adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+adam = Adam(lr=4e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
 model = Sequential()
 
-model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2])))
-model.add(Dense(2*slice_length))
+model.add(LSTM(slice_length*40, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
+model.add(TimeDistributed(Dense(72, activation='relu')))
+model.add(TimeDistributed(Dense(2)))
 model.compile(loss='mean_squared_error', optimizer=adam)
-model.fit(X_Train, Y_Train, epochs=1200, batch_size=64)
+model.fit(X_Train, Y_Train, epochs=500, batch_size=6)
 result = model.predict(X_Test)
 
 result = result.reshape(Y_Test.shape[0]*slice_length, 2)
@@ -172,7 +174,6 @@ Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
 
 result = scalerY.inverse_transform(result)
 Y_Test = scalerY.inverse_transform(Y_Test)
-print(Y_Test.shape)
 
 def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
     vector1 = np.array([true_latitude, true_longitude])
