@@ -14,8 +14,8 @@ max_longitude = 3463503.3311055717
 min_latitude = 328787.97245886514
 min_longitude = 3462203.7096695383
 
-la_size = 16
-lo_size = 13
+la_size = 16*2
+lo_size = 13*2
 la = (max_latitude - min_latitude)/la_size
 lo = (max_longitude - min_longitude)/lo_size
 print(lo)

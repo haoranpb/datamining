@@ -3,15 +3,14 @@ import random
 import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
-# from keras.models import Sequential
-# from keras.layers import Dense, LSTM
-# from keras.optimizers import Adam
+from keras.models import Sequential
+from keras.layers import Dense, LSTM
+from keras.optimizers import Adam
 import utm
 
 def shuffle_train_test(X, Y, LEN):
     random.seed(1)
     random_list = random.sample(range(LEN), k=int(0.1*LEN))
-    # random_list.sort()
     X_Train = []
     Y_Train = []
     X_Test = []
@@ -96,10 +95,8 @@ with open('../data/train_2g.csv', 'r') as file:
 LEN = len(X)
 slice_length = 6
 
-X.sort(key=lambda row: row[0]) # 按照时间戳排序
 X = np.array(X).astype('float64')
 Y = np.array(Y).astype('float64')
-print(X.shape)
 
 # 按照轨迹ID进行切割
 tmp_count = 1
@@ -107,95 +104,92 @@ tmp_X = []
 tmp_Y = []
 x_slice_list = []
 y_slice_list = []
-tmp_traj_label = round(X[0][1])
+tmp_traj_label = int(X[0][1])
 for i in range(LEN):
-    traj_id = round(X[i][1])
+    traj_id = int(X[i][1])
     if tmp_count == slice_length:
         if traj_id == tmp_traj_label:
             x_slice_list.append(X[i])
+            y_slice_list.append(Y[i])
             tmp_X += x_slice_list
+            tmp_Y += y_slice_list
             x_slice_list = []
+            y_slice_list = []
             tmp_count = 1
-            tmp_traj_label = round(X[i+1][1])
-            break
+            tmp_traj_label = int(X[i+1][1])
         else:
-            x_slice_list.insert(0, X[i-5])
+            x_slice_list.insert(0, X[i-slice_length])
+            y_slice_list.insert(0, Y[i-slice_length])
             tmp_X += x_slice_list
-            x_slice_list = []
-            tmp_count = 1
+            tmp_Y += y_slice_list
+            x_slice_list = [X[i]]
+            y_slice_list = [Y[i]]
+            tmp_count = 2
             tmp_traj_label = traj_id
     else:
         if traj_id == tmp_traj_label:
             tmp_count += 1
             x_slice_list.append(X[i])
+            y_slice_list.append(Y[i])
         else:
             x_slice_list = []
-            for k in range(1, 7): # 从这个位置起，回退六个
-                x_slice_list.append(X[i+k-7])
-                tmp_X += x_slice_list
-                tmp_traj_label = traj_id
-                x_slice_list = []
-print(len(X))
-print(len(tmp_X))
+            y_slice_list = []
+            for k in range(slice_length):
+                x_slice_list.append(X[i+k-slice_length])
+                y_slice_list.append(Y[i+k-slice_length])
+            tmp_X += x_slice_list
+            tmp_Y += y_slice_list
+            x_slice_list = [X[i]]
+            y_slice_list = [Y[i]]
+            tmp_count = 2
+            tmp_traj_label = traj_id
 
-#     if tmp_traj_label == '' or tmp_traj_label != X[i][1]:
-#         tmp_traj_label = X[i][1]
-#         tmp_count = 1
-#     else:
-#         tmp_count += 1
+LEN = len(tmp_X)
+X, Y = np.array(tmp_X), np.array(tmp_Y)
 
-#     if tmp_count
+scalerX = preprocessing.StandardScaler()
+scalerY = preprocessing.StandardScaler()
 
+X = scalerX.fit_transform(X)
+Y = scalerY.fit_transform(Y)
 
-# LEN = int(LEN/slice_length)*slice_length
-# X = X[:LEN]
-# Y = Y[:LEN]
+X = X.reshape((round(LEN/slice_length), slice_length, features))
+Y = Y.reshape((round(LEN/slice_length), slice_length*2))
 
+X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
 
+adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+model = Sequential()
 
+model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2])))
+model.add(Dense(2*slice_length))
+model.compile(loss='mean_squared_error', optimizer=adam)
+model.fit(X_Train, Y_Train, epochs=1200, batch_size=64)
+result = model.predict(X_Test)
 
-# scalerX = preprocessing.StandardScaler()
-# scalerY = preprocessing.StandardScaler()
+result = result.reshape(Y_Test.shape[0]*slice_length, 2)
+Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
 
-# X = scalerX.fit_transform(X)
-# Y = scalerY.fit_transform(Y)
+result = scalerY.inverse_transform(result)
+Y_Test = scalerY.inverse_transform(Y_Test)
+print(Y_Test.shape)
 
-# X = X.reshape((round(LEN/slice_length), slice_length, features))
-# Y = Y.reshape((round(LEN/slice_length), slice_length*2))
+def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
+    vector1 = np.array([true_latitude, true_longitude])
+    vector2 = np.array([pred_latitude, pred_longitude])
+    return np.sqrt(np.sum(np.square(vector1 - vector2)))
 
-# X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
+error_list = []
+for i in range(Y_Test.shape[0]):
+    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], result[i][0], result[i][1])
+    error_list.append(error)
 
-# adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, amsgrad=False)
-# model = Sequential()
+print(np.median(error_list)) # 这就是中位误差？
+print(np.mean(error_list)) # 这就是中位误差？
 
-# model.add(LSTM(slice_length*10, input_shape=(X_Train.shape[1], X_Train.shape[2])))
-# model.add(Dense(2*slice_length))
-# model.compile(loss='mean_squared_error', optimizer=adam)
-# model.fit(X_Train, Y_Train, epochs=500, batch_size=64)
-# result = model.predict(X_Test)
+plt.figure()
+plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
+# plt.scatter(Y_Train[:,0], Y_Train[:,1], c='red', s=3)
+plt.scatter(result[:,0], result[:,1], c='red', s=3)
 
-# result = result.reshape(int(0.1*LEN), 2)
-# Y_Test = Y_Test.reshape(int(0.1*LEN), 2)
-
-# result = scalerY.inverse_transform(result)
-# Y_Test = scalerY.inverse_transform(Y_Test)
-
-# def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
-#     vector1 = np.array([true_latitude, true_longitude])
-#     vector2 = np.array([pred_latitude, pred_longitude])
-#     return np.sqrt(np.sum(np.square(vector1 - vector2)))
-
-# error_list = []
-# for i in range(int(0.1*LEN)):
-#     error = calcu_distance(Y_Test[i][0], Y_Test[i][1], result[i][0], result[i][1])
-#     error_list.append(error)
-
-# print(np.median(error_list)) # 这就是中位误差？
-# print(np.mean(error_list)) # 这就是中位误差？
-
-# plt.figure()
-# plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
-# # plt.scatter(Y_Train[:,0], Y_Train[:,1], c='red', s=3)
-# plt.scatter(result[:,0], result[:,1], c='red', s=3)
-
-# plt.show()
+plt.show()
