@@ -3,10 +3,29 @@ import random
 import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
-from keras.models import Sequential
-from keras.layers import Dense, LSTM, TimeDistributed
+from keras.models import Sequential, Model
+from keras.layers import Dense, LSTM, TimeDistributed, Input
 from keras.optimizers import Adam
 import utm
+
+max_latitude = 330414.05273900216
+max_longitude = 3463503.3311055717
+min_latitude = 328787.97245886514
+min_longitude = 3462203.7096695383
+
+la_size = 16*2
+lo_size = 13*2
+la = (max_latitude - min_latitude)/la_size
+lo = (max_longitude - min_longitude)/lo_size
+print(lo)
+print(la)
+
+def coordinate_to_label(coordinate):
+    la_label = int((coordinate[0] - min_latitude - 1e-12)/la)
+    lo_label = int((coordinate[1] - min_longitude - 1e-12)/lo)
+    tmp = np.zeros(la_size * lo_size, dtype=int)
+    tmp[la_label + lo_label*la_size] = 1
+    return tmp
 
 def shuffle_train_test(X, Y, LEN):
     random.seed(1)
@@ -21,7 +40,10 @@ def shuffle_train_test(X, Y, LEN):
             Y_Test.append(Y[i])
         else:
             X_Train.append(X[i])
-            Y_Train.append(Y[i])
+            tmp_label = np.zeros((6, lo_size*la_size))
+            for k in range(6):
+                tmp_label[k] = coordinate_to_label(Y[i, k])
+            Y_Train.append(tmp_label)
     return np.array(X_Train), np.array(Y_Train), np.array(X_Test), np.array(Y_Test)
 
 # lat, lon, 51 'R'
@@ -97,9 +119,6 @@ slice_length = 6
 
 X = np.array(X).astype('float64')
 Y = np.array(Y).astype('float64')
-print(X.shape)
-print(Y.shape)
-
 
 # 按照轨迹ID进行切割
 tmp_count = 1
@@ -119,8 +138,7 @@ for i in range(LEN):
             x_slice_list = []
             y_slice_list = []
             tmp_count = 1
-            if (i+1) < LEN:
-                tmp_traj_label = int(X[i+1][1])
+            tmp_traj_label = int(X[i+1][1])
         else:
             x_slice_list.insert(0, X[i-slice_length])
             y_slice_list.insert(0, Y[i-slice_length])
@@ -153,48 +171,66 @@ X, Y = np.array(tmp_X), np.array(tmp_Y)
 X = np.delete(X, [1], axis=1)
 
 scalerX = preprocessing.StandardScaler()
-scalerY = preprocessing.StandardScaler()
-
 X = scalerX.fit_transform(X)
-Y = scalerY.fit_transform(Y)
-
 X = X.reshape((round(LEN/slice_length), slice_length, features-1))
 Y = Y.reshape((round(LEN/slice_length), slice_length, 2))
 
 X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
+print(X.shape)
+print(Y.shape)
+# (1571, 6, 31)
+# (1571, 6, 2)
+input_seq = Input(shape=(6, 31))
+# input_seq = Reshape()
+encoded = Dense(64, activation='relu')(input_seq)
+encoded = Dense(32, activation='relu')(encoded)
 
-adam = Adam(lr=4e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
-model = Sequential()
+decoded = Dense((6, 31), activation='sigmoid')(encoded)
 
-model.add(LSTM(slice_length*40, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
-model.add(TimeDistributed(Dense(72, activation='relu')))
-model.add(TimeDistributed(Dense(2, activation='linear')))
-model.compile(loss='mean_squared_error', optimizer=adam)
-model.fit(X_Train, Y_Train, epochs=500, batch_size=6)
-result = model.predict(X_Test)
+autoencoder = Model(input=input_img, output=decoded)
 
-result = result.reshape(Y_Test.shape[0]*slice_length, 2)
-Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
 
-result = scalerY.inverse_transform(result)
-Y_Test = scalerY.inverse_transform(Y_Test)
+# adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+# model = Sequential()
 
-def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
-    vector1 = np.array([true_latitude, true_longitude])
-    vector2 = np.array([pred_latitude, pred_longitude])
-    return np.sqrt(np.sum(np.square(vector1 - vector2)))
+# model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
+# model.add(TimeDistributed(Dense(2*la_size*lo_size, activation='relu')))
+# model.add(TimeDistributed(Dense(la_size*lo_size, activation='softmax')))
+# model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=adam)
+# model.fit(X_Train, Y_Train, epochs=20, batch_size=6)
+# result = model.predict(X_Test)
 
-error_list = []
-for i in range(Y_Test.shape[0]):
-    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], result[i][0], result[i][1])
-    error_list.append(error)
+# result = result.reshape(Y_Test.shape[0]*slice_length, lo_size*la_size)
+# Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
 
-print(np.median(error_list)) # 这就是中位误差？
-print(np.mean(error_list)) # 这就是中位误差？
+# def label_to_coordinate(label_list): # error!
+#     label = np.argmax(label_list)
+#     # print(label)
+#     la_label = label % la_size
+#     lo_label = (label - la_label) / la_size
+#     return ((0.5+la_label)*la + min_latitude, (0.5+lo_label)*lo + min_longitude)
 
-plt.figure()
-plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
-# plt.scatter(Y_Train[:,0], Y_Train[:,1], c='red', s=3)
-plt.scatter(result[:,0], result[:,1], c='red', s=3)
+# def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
+#     vector1 = np.array([true_latitude, true_longitude])
+#     vector2 = np.array([pred_latitude, pred_longitude])
+#     return np.sqrt(np.sum(np.square(vector1 - vector2)))
 
-plt.show()
+# error_list = []
+# coordinate_result = []
+# for i in range(Y_Test.shape[0]):
+#     tmp = label_to_coordinate(result[i])
+#     coordinate_result.append(tmp)
+#     error = calcu_distance(Y_Test[i][0], Y_Test[i][1], tmp[0], tmp[1])
+#     error_list.append(error)
+
+# coordinate_result = np.array(coordinate_result)
+# # print(coordinate_result.shape)
+# # print(Y_Test.shape)
+# print(np.median(error_list)) # 这就是中位误差？
+# print(np.mean(error_list)) # 这就是中位误差？
+
+# plt.figure()
+# plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
+# plt.scatter(coordinate_result[:,0], coordinate_result[:,1], c='red', s=3)
+
+# plt.show()

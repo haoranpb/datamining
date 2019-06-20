@@ -55,7 +55,7 @@ def check_validation(value_dict):
         'MRTime': value_dict['MRTime'],
         'TrajID': value_dict['TrajID']
     }
-    if float(value_dict['Accuracy']) > 30 or int(value_dict['TrajID']) > 69:
+    if float(value_dict['Accuracy']) > 30:
         return False, validate_data
 
     for i in range(6):
@@ -176,8 +176,10 @@ X = X.reshape((round(LEN/slice_length), slice_length, features-1))
 Y = Y.reshape((round(LEN/slice_length), slice_length, 2))
 
 X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
+print(X.shape)
+print(Y.shape)
 
-adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+adam = Adam(lr=8e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
 model = Sequential()
 
 model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
