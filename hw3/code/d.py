@@ -184,7 +184,7 @@ model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2])
 model.add(TimeDistributed(Dense(2*la_size*lo_size, activation='relu')))
 model.add(TimeDistributed(Dense(la_size*lo_size, activation='softmax')))
 model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=adam)
-model.fit(X_Train, Y_Train, epochs=200, batch_size=6)
+model.fit(X_Train, Y_Train, epochs=20, batch_size=6)
 result = model.predict(X_Test)
 
 result = result.reshape(Y_Test.shape[0]*slice_length, lo_size*la_size)
