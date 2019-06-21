@@ -3,29 +3,10 @@ import random
 import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
-from keras.models import Sequential, Model
-from keras.layers import Dense, LSTM, TimeDistributed, RepeatVector, Input
+from keras.models import Sequential
+from keras.layers import Dense, LSTM, TimeDistributed
 from keras.optimizers import Adam
 import utm
-
-max_latitude = 330414.05273900216
-max_longitude = 3463503.3311055717
-min_latitude = 328787.97245886514
-min_longitude = 3462203.7096695383
-
-la_size = 16*2
-lo_size = 13*2
-la = (max_latitude - min_latitude)/la_size
-lo = (max_longitude - min_longitude)/lo_size
-print(lo)
-print(la)
-
-def coordinate_to_label(coordinate):
-    la_label = int((coordinate[0] - min_latitude - 1e-12)/la)
-    lo_label = int((coordinate[1] - min_longitude - 1e-12)/lo)
-    tmp = np.zeros(la_size * lo_size, dtype=int)
-    tmp[la_label + lo_label*la_size] = 1
-    return tmp
 
 def shuffle_train_test(X, Y, LEN):
     random.seed(1)
@@ -40,10 +21,7 @@ def shuffle_train_test(X, Y, LEN):
             Y_Test.append(Y[i])
         else:
             X_Train.append(X[i])
-            tmp_label = np.zeros((6, lo_size*la_size))
-            for k in range(6):
-                tmp_label[k] = coordinate_to_label(Y[i, k])
-            Y_Train.append(tmp_label)
+            Y_Train.append(Y[i])
     return np.array(X_Train), np.array(Y_Train), np.array(X_Test), np.array(Y_Test)
 
 # lat, lon, 51 'R'
@@ -119,6 +97,9 @@ slice_length = 6
 
 X = np.array(X).astype('float64')
 Y = np.array(Y).astype('float64')
+print(X.shape)
+print(Y.shape)
+
 
 # 按照轨迹ID进行切割
 tmp_count = 1
@@ -138,7 +119,8 @@ for i in range(LEN):
             x_slice_list = []
             y_slice_list = []
             tmp_count = 1
-            tmp_traj_label = int(X[i+1][1])
+            if (i+1) < LEN:
+                tmp_traj_label = int(X[i+1][1])
         else:
             x_slice_list.insert(0, X[i-slice_length])
             y_slice_list.insert(0, Y[i-slice_length])
@@ -171,46 +153,32 @@ X, Y = np.array(tmp_X), np.array(tmp_Y)
 X = np.delete(X, [1], axis=1)
 
 scalerX = preprocessing.StandardScaler()
+scalerY = preprocessing.StandardScaler()
+
 X = scalerX.fit_transform(X)
+Y = scalerY.fit_transform(Y)
+
 X = X.reshape((round(LEN/slice_length), slice_length, features-1))
 Y = Y.reshape((round(LEN/slice_length), slice_length, 2))
 
-# Auto Encoder Start
-# adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
-inputs = Input(shape=(slice_length, features-1))
-encoded = LSTM(slice_length*20)(inputs)
-
-decoded = RepeatVector(slice_length)(encoded)
-decoded = LSTM(features-1, return_sequences=True)(decoded)
-
-sequence_autoencoder = Model(inputs, decoded)
-encoder = Model(inputs, encoded)
-sequence_autoencoder.compile(loss='mean_squared_error', optimizer='adam')
-sequence_autoencoder.fit(X, X, epochs=100, batch_size=6, shuffle=True)
-X = sequence_autoencoder.predict(X)
-# Auto Encoder End
-
 X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
 
-adam = Adam(lr=8e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+adam = Adam(lr=4e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
 model = Sequential()
 
-model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
-model.add(TimeDistributed(Dense(2*la_size*lo_size, activation='relu')))
-model.add(TimeDistributed(Dense(la_size*lo_size, activation='softmax')))
-model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=adam)
-model.fit(X_Train, Y_Train, epochs=25, batch_size=6)
+model.add(LSTM(slice_length*40, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
+model.add(TimeDistributed(Dense(72, activation='relu')))
+model.add(TimeDistributed(Dense(2, activation='linear')))
+
+model.compile(loss='mean_squared_error', optimizer=adam)
+model.fit(X_Train, Y_Train, epochs=500, batch_size=6)
 result = model.predict(X_Test)
 
-result = result.reshape(Y_Test.shape[0]*slice_length, lo_size*la_size)
+result = result.reshape(Y_Test.shape[0]*slice_length, 2)
 Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
 
-def label_to_coordinate(label_list): # error!
-    label = np.argmax(label_list)
-    # print(label)
-    la_label = label % la_size
-    lo_label = (label - la_label) / la_size
-    return ((0.5+la_label)*la + min_latitude, (0.5+lo_label)*lo + min_longitude)
+result = scalerY.inverse_transform(result)
+Y_Test = scalerY.inverse_transform(Y_Test)
 
 def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
     vector1 = np.array([true_latitude, true_longitude])
@@ -218,21 +186,44 @@ def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude)
     return np.sqrt(np.sum(np.square(vector1 - vector2)))
 
 error_list = []
-coordinate_result = []
+error_dict = {
+    '0': 0,
+    '1': 0,
+    '2': 0,
+    '3': 0,
+    '4': 0
+}
 for i in range(Y_Test.shape[0]):
-    tmp = label_to_coordinate(result[i])
-    coordinate_result.append(tmp)
-    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], tmp[0], tmp[1])
+    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], result[i][0], result[i][1])
+    if error <= 20:
+        error_dict['0'] += 1
+    elif error <= 40:
+        error_dict['1'] += 1
+    elif error <= 60:
+        error_dict['2'] += 1
+    elif error <= 80:
+        error_dict['3'] += 1
+    elif error <= 100:
+        error_dict['4'] += 1
     error_list.append(error)
 
-coordinate_result = np.array(coordinate_result)
-# print(coordinate_result.shape)
-# print(Y_Test.shape)
-print(np.median(error_list)) # 这就是中位误差？
-print(np.mean(error_list)) # 这就是中位误差？
+error_list.sort()
+print(np.median(error_list)) # 中位误差
+print(np.mean(error_list)) # 平均误差
+print(error_list[int(len(error_list)*0.9)]) # 90%误差
 
-plt.figure()
+error_ratio = []
+for i in range(5):
+    if i > 0:
+        error_dict[str(i)] += error_dict[str(i-1)]
+    error_ratio.append(error_dict[str(i)]/len(error_list))
+
+
+plt.figure('figure 1')
 plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
-plt.scatter(coordinate_result[:,0], coordinate_result[:,1], c='red', s=3)
+plt.scatter(result[:,0], result[:,1], c='red', s=3)
+
+plt.figure('figure 2')
+plt.plot([20, 40, 60, 80, 100], error_ratio, marker='o')
 
 plt.show()

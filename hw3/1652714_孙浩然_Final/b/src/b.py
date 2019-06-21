@@ -8,6 +8,23 @@ from keras.layers import Dense, Conv2D, Flatten
 from keras.optimizers import Adam
 import utm
 
+max_latitude = 330414.05273900216
+max_longitude = 3463503.3311055717
+min_latitude = 328787.97245886514
+min_longitude = 3462203.7096695383
+
+la_size = 16*2
+lo_size = 13*2
+la = (max_latitude - min_latitude)/la_size
+lo = (max_longitude - min_longitude)/lo_size
+
+def coordinate_to_label(coordinate):
+    la_label = int((coordinate[0] - min_latitude - 1e-12)/la)
+    lo_label = int((coordinate[1] - min_longitude - 1e-12)/lo)
+    tmp = np.zeros(la_size * lo_size, dtype=int)
+    tmp[la_label + lo_label*la_size] = 1
+    return tmp
+
 def shuffle_train_test(X, Y, LEN):
     random.seed(1)
     random_list = random.sample(range(LEN), k=int(0.1*LEN))
@@ -21,7 +38,7 @@ def shuffle_train_test(X, Y, LEN):
             Y_Test.append(Y[i])
         else:
             X_Train.append(X[i])
-            Y_Train.append(Y[i])
+            Y_Train.append(coordinate_to_label(Y[i]))
     return np.array(X_Train), np.array(Y_Train), np.array(X_Test), np.array(Y_Test)
 
 # lat, lon, 51 'R'
@@ -75,7 +92,7 @@ with open('../data/train_2g.csv', 'r') as file:
         if(not validation):
             continue
         coordinate = utm.from_latlon(float(parsed_row['Latitude']), float(parsed_row['Longitude']))[:2]
-        Y.append([coordinate[0], coordinate[1]])
+        Y.append(coordinate)
         mr_sample = np.zeros((6, 5))
 
         for i in range(6):
@@ -97,27 +114,33 @@ X = scalerX.fit_transform(X)
 X = X.reshape((LEN, 6, 5))
 X = X[:, :, :, np.newaxis]
 
-scalerY = preprocessing.StandardScaler()
-Y = scalerY.fit_transform(Y)
 # print(X.shape)
 X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, LEN)
 
+print(X_Train.shape)
+print(Y_Train.shape)
+print(X_Test.shape)
+print(Y_Test.shape)
 
-adam = Adam(lr=7e-5, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-6, amsgrad=False)
+adam = Adam(lr=6e-4, beta_1=0.9, beta_2=0.999, epsilon=None,amsgrad=False)
 model = Sequential()
 
-model.add(Conv2D(64, kernel_size=3, activation='relu', input_shape=(6, 5, 1)))
-model.add(Conv2D(128, kernel_size=3, activation='relu'))
+model.add(Conv2D(128, kernel_size=3, activation='relu', input_shape=(6, 5, 1)))
+model.add(Conv2D(256, kernel_size=3, activation='relu'))
 model.add(Flatten())
-model.add(Dense(32, activation='relu'))
-model.add(Dense(2))
+model.add(Dense(512, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(la_size*lo_size, activation='softmax'))
 
-model.compile(optimizer=adam, loss='mean_squared_error')
-model.fit(X_Train, Y_Train, epochs=1500, batch_size=64)
+model.compile(optimizer=adam, loss='categorical_crossentropy', metrics=['accuracy'])
+model.fit(X_Train, Y_Train, epochs=100, batch_size=64)
 result = model.predict(X_Test)
 
-result = scalerY.inverse_transform(result)
-Y_Test = scalerY.inverse_transform(Y_Test)
+def label_to_coordinate(label_list): # error!
+    label = np.argmax(label_list)
+    la_label = label % la_size
+    lo_label = (label - la_label) / la_size
+    return ((0.5+la_label)*la + min_latitude, (0.5+lo_label)*lo + min_longitude)
 
 def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
     vector1 = np.array([true_latitude, true_longitude])
@@ -125,16 +148,47 @@ def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude)
     return np.sqrt(np.sum(np.square(vector1 - vector2)))
 
 error_list = []
+error_dict = {
+    '0': 0,
+    '1': 0,
+    '2': 0,
+    '3': 0,
+    '4': 0
+}
+coordinate_result = []
 for i in range(int(0.1*LEN)):
-    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], result[i][0], result[i][1])
+    tmp = label_to_coordinate(result[i])
+    coordinate_result.append(tmp)
+    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], tmp[0], tmp[1])
+    if error <= 20:
+        error_dict['0'] += 1
+    elif error <= 40:
+        error_dict['1'] += 1
+    elif error <= 60:
+        error_dict['2'] += 1
+    elif error <= 80:
+        error_dict['3'] += 1
+    elif error <= 100:
+        error_dict['4'] += 1
     error_list.append(error)
 
-print(np.median(error_list)) # 这就是中位误差？
-print(np.mean(error_list)) # 这就是中位误差？
+coordinate_result = np.array(coordinate_result)
+error_list.sort()
+print(np.median(error_list)) # 中位误差
+print(np.mean(error_list)) # 平均误差
+print(error_list[int(len(error_list)*0.9)]) # 90%误差
 
-plt.figure()
+error_ratio = []
+for i in range(5):
+    if i > 0:
+        error_dict[str(i)] += error_dict[str(i-1)]
+    error_ratio.append(error_dict[str(i)]/len(error_list))
+
+plt.figure('figure 1')
 plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
-# plt.scatter(Y_Train[:,0], Y_Train[:,1], c='red', s=3)
-plt.scatter(result[:,0], result[:,1], c='red', s=3)
+plt.scatter(coordinate_result[:,0], coordinate_result[:,1], c='red', s=3)
+
+plt.figure('figure 2')
+plt.plot([20, 40, 60, 80, 100], error_ratio, marker='o')
 
 plt.show()

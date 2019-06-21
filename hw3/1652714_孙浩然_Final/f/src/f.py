@@ -4,7 +4,7 @@ import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
 from keras.models import Sequential, Model
-from keras.layers import Dense, LSTM, TimeDistributed, Input
+from keras.layers import Dense, LSTM, TimeDistributed, RepeatVector, Input
 from keras.optimizers import Adam
 import utm
 
@@ -175,62 +175,90 @@ X = scalerX.fit_transform(X)
 X = X.reshape((round(LEN/slice_length), slice_length, features-1))
 Y = Y.reshape((round(LEN/slice_length), slice_length, 2))
 
-X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
-print(X.shape)
-print(Y.shape)
-# (1571, 6, 31)
-# (1571, 6, 2)
-input_seq = Input(shape=(6, 31))
-# input_seq = Reshape()
-encoded = Dense(64, activation='relu')(input_seq)
-encoded = Dense(32, activation='relu')(encoded)
-
-decoded = Dense((6, 31), activation='sigmoid')(encoded)
-
-autoencoder = Model(input=input_img, output=decoded)
-
-
+# Auto Encoder Start
 # adam = Adam(lr=5e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
-# model = Sequential()
+inputs = Input(shape=(slice_length, features-1))
+encoded = LSTM(slice_length*20)(inputs)
 
-# model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
-# model.add(TimeDistributed(Dense(2*la_size*lo_size, activation='relu')))
-# model.add(TimeDistributed(Dense(la_size*lo_size, activation='softmax')))
-# model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=adam)
-# model.fit(X_Train, Y_Train, epochs=20, batch_size=6)
-# result = model.predict(X_Test)
+decoded = RepeatVector(slice_length)(encoded)
+decoded = LSTM(features-1, return_sequences=True)(decoded)
 
-# result = result.reshape(Y_Test.shape[0]*slice_length, lo_size*la_size)
-# Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
+sequence_autoencoder = Model(inputs, decoded)
+encoder = Model(inputs, encoded)
+sequence_autoencoder.compile(loss='mean_squared_error', optimizer='adam')
+sequence_autoencoder.fit(X, X, epochs=100, batch_size=6, shuffle=True)
+X = encoder.predict(X)
+# Auto Encoder End
 
-# def label_to_coordinate(label_list): # error!
-#     label = np.argmax(label_list)
-#     # print(label)
-#     la_label = label % la_size
-#     lo_label = (label - la_label) / la_size
-#     return ((0.5+la_label)*la + min_latitude, (0.5+lo_label)*lo + min_longitude)
+X_Train, Y_Train, X_Test, Y_Test = shuffle_train_test(X, Y, round(LEN/slice_length))
 
-# def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
-#     vector1 = np.array([true_latitude, true_longitude])
-#     vector2 = np.array([pred_latitude, pred_longitude])
-#     return np.sqrt(np.sum(np.square(vector1 - vector2)))
+adam = Adam(lr=8e-4, beta_1=0.9, beta_2=0.999, epsilon=None, decay=1e-9, amsgrad=False)
+model = Sequential()
 
-# error_list = []
-# coordinate_result = []
-# for i in range(Y_Test.shape[0]):
-#     tmp = label_to_coordinate(result[i])
-#     coordinate_result.append(tmp)
-#     error = calcu_distance(Y_Test[i][0], Y_Test[i][1], tmp[0], tmp[1])
-#     error_list.append(error)
+model.add(LSTM(slice_length*20, input_shape=(X_Train.shape[1], X_Train.shape[2]), return_sequences=True))
+model.add(TimeDistributed(Dense(2*la_size*lo_size, activation='relu')))
+model.add(TimeDistributed(Dense(la_size*lo_size, activation='softmax')))
+model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=adam)
+model.fit(X_Train, Y_Train, epochs=50, batch_size=6)
+result = model.predict(X_Test)
 
-# coordinate_result = np.array(coordinate_result)
-# # print(coordinate_result.shape)
-# # print(Y_Test.shape)
-# print(np.median(error_list)) # 这就是中位误差？
-# print(np.mean(error_list)) # 这就是中位误差？
+result = result.reshape(Y_Test.shape[0]*slice_length, lo_size*la_size)
+Y_Test = Y_Test.reshape(Y_Test.shape[0]*slice_length, 2)
 
-# plt.figure()
-# plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
-# plt.scatter(coordinate_result[:,0], coordinate_result[:,1], c='red', s=3)
+def label_to_coordinate(label_list): # error!
+    label = np.argmax(label_list)
+    # print(label)
+    la_label = label % la_size
+    lo_label = (label - la_label) / la_size
+    return ((0.5+la_label)*la + min_latitude, (0.5+lo_label)*lo + min_longitude)
 
-# plt.show()
+def calcu_distance(true_latitude, true_longitude, pred_latitude, pred_longitude):
+    vector1 = np.array([true_latitude, true_longitude])
+    vector2 = np.array([pred_latitude, pred_longitude])
+    return np.sqrt(np.sum(np.square(vector1 - vector2)))
+
+error_list = []
+coordinate_result = []
+error_dict = {
+    '0': 0,
+    '1': 0,
+    '2': 0,
+    '3': 0,
+    '4': 0
+}
+for i in range(Y_Test.shape[0]):
+    tmp = label_to_coordinate(result[i])
+    coordinate_result.append(tmp)
+    error = calcu_distance(Y_Test[i][0], Y_Test[i][1], tmp[0], tmp[1])
+    if error <= 20:
+        error_dict['0'] += 1
+    elif error <= 40:
+        error_dict['1'] += 1
+    elif error <= 60:
+        error_dict['2'] += 1
+    elif error <= 80:
+        error_dict['3'] += 1
+    elif error <= 100:
+        error_dict['4'] += 1
+    error_list.append(error)
+
+coordinate_result = np.array(coordinate_result)
+error_list.sort()
+print(np.median(error_list)) # 这就是中位误差？
+print(np.mean(error_list)) # 这就是中位误差？
+print(error_list[int(len(error_list)*0.9)]) # 90%误差
+
+error_ratio = []
+for i in range(5):
+    if i > 0:
+        error_dict[str(i)] += error_dict[str(i-1)]
+    error_ratio.append(error_dict[str(i)]/len(error_list))
+
+plt.figure('figure 1')
+plt.scatter(Y_Test[:,0], Y_Test[:,1], c='blue', s=5)
+plt.scatter(coordinate_result[:,0], coordinate_result[:,1], c='red', s=3)
+
+plt.figure('figure 2')
+plt.plot([20, 40, 60, 80, 100], error_ratio, marker='o')
+
+plt.show()
